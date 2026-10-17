@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>A Rose Written in Every Language</title>
+<style>
+html,body{margin:0;height:100%;background:#060208;overflow:hidden;font-family:Georgia,"Times New Roman",serif}
+canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+#cap{position:absolute;left:0;right:0;bottom:3.5vh;text-align:center;color:#f8d4de;font-size:clamp(16px,3vw,28px);font-style:italic;letter-spacing:.06em;opacity:0;transition:opacity 2.5s;text-shadow:0 0 14px #e8346a;pointer-events:none;padding:0 16px}
+#cap small{display:block;font-size:.55em;font-style:normal;letter-spacing:.12em;opacity:.7;margin-top:.5em}
+#cap.on{opacity:1}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="cap"></div>
+<script>
+// ---- settings ----
+const DURATION = 10000, ANIM = 620, LIFT = 32, GAP = 3, SEED = 17;
+const FONT = '"Noto Sans","Segoe UI","Nirmala UI","Malgun Gothic","Yu Gothic UI","Microsoft YaHei",Georgia,sans-serif';
+const PHRASES = ["I LOVE YOU","I love you","Te amo","Ti amo","Je t'aime","Ich liebe dich","Eu te amo","Seni seviyorum","Я тебя люблю","사랑해","愛してる","我爱你","मैं तुमसे प्यार करता हूँ","Σ' αγαπώ","Ik hou van jou","Jag älskar dig","Kocham cię","ฉันรักคุณ","Anh yêu em","Aku cinta kamu","Mahal kita","אני אוהבת אותך","أحبك","నేను నిన్ను ప్రేమిస్తున్నాను","நான் உன்னை காதலிக்கிறேன்","আমি তোমাকে ভালোবাসি","Volim te","Te iubesc","Ljubim te","Nakupenda","Я тебе кохаю","Miluji tě","Szeretlek","Rakastan sinua","Jeg elsker dig"];
+const ACCENTS = ["LOVE","TE AMO","AMOUR","TI AMO","I LOVE YOU","AMOR","愛してる","사랑해","我爱你","JE T'AIME","SZERETLEK","NAKUPENDA"];
+const SHORT = ["Te amo","Ti amo","AMOR","LOVE","愛してる","사랑해","我爱你","Amour","I love you","Mahal kita","Te iubesc","Volim te","Szeretlek","Miluji tě","Nakupenda"];
+const HEADW = PHRASES.concat(["LOVE","LOVE YOU","AMOR","AMOUR","AMORE","LIEBE","TE AMO","TI AMO","TE QUIERO","JE T'AIME","愛","愛してる","사랑","我爱你","รักคุณ","ANH YÊU EM","तुमसे प्यार है","ভালোবাসি","أحبك","Nakupenda"]);
+const HSIZES = [7,8,9,10,11,12,13,14], HW = [2,4,5,5,4,2,1,.5];
+
+// seeded rng (same rose every time)
+let s = SEED;
+const rng = () => { s |= 0; s = s + 0x6D2B79F5 | 0; let t = Math.imul(s ^ s >>> 15, 1 | s); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+const rnd = (a, b) => a + rng() * (b - a);
+const pick = a => a[Math.floor(rng() * a.length)];
+const shuffle = a => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+
+// ---- shapes ----
+const ell = (cx, cy, rx, ry, n = 160) => Array.from({length: n}, (_, i) => [cx + rx * Math.cos(2 * Math.PI * i / n), cy + ry * Math.sin(2 * Math.PI * i / n)]);
+const HEAD = [ell(400,180,145,90), ell(330,180,120,83), ell(470,180,120,83), ell(275,260,98,112), ell(525,260,98,112), ell(338,325,118,126), ell(462,325,118,126),
+  [[230,330],[290,365],[348,414],[400,532],[452,414],[510,365],[570,330],[522,452],[400,542],[278,452]]];
+const STEM = [[378,493],[422,493],[427,752],[408,772],[390,760],[374,600]];
+const LLEAF = [[395,594],[359,554],[304,535],[244,541],[215,562],[253,609],[321,631],[374,617]];
+const RLEAF = [[406,619],[442,581],[491,561],[553,578],[578,600],[535,640],[476,660],[425,649]];
+
+// ---- canvas ----
+const cv = document.getElementById("c"), ctx = cv.getContext("2d");
+const measure = (t, pt) => { ctx.font = `bold ${pt * 1.333}px ${FONT}`; return ctx.measureText(t).width; };
+
+// ---- span math ----
+function polySpans(p, y) {
+  const xs = [];
+  for (let i = 0; i < p.length; i++) {
+    const [x1, y1] = p[i], [x2, y2] = p[(i + 1) % p.length];
+    if (((y1 <= y && y < y2) || (y2 <= y && y < y1)) && y2 !== y1) xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+  }
+  xs.sort((a, b) => a - b);
+  const out = []; for (let i = 0; i + 1 < xs.length; i += 2) out.push([xs[i], xs[i + 1]]);
+  return out;
+}
+function merge(sp) {
+  if (!sp.length) return [];
+  sp.sort((a, b) => a[0] - b[0]);
+  const m = [sp[0].slice()];
+  for (const [lo, hi] of sp.slice(1)) { const l = m[m.length - 1]; if (lo <= l[1] + 1) l[1] = Math.max(l[1], hi); else m.push([lo, hi]); }
+  return m;
+}
+const shapeSpans = (polys, y) => merge(polys.flatMap(p => polySpans(p, y)));
+function inter(a, b, min) {
+  const o = [];
+  for (const x of a) for (const y of b) { const lo = Math.max(x[0], y[0]), hi = Math.min(x[1], y[1]); if (hi - lo >= min) o.push([lo, hi]); }
+  return merge(o);
+}
+
+// ---- colors ----
+const hex = h => [1, 3, 5].map(i => parseInt(h.substr(i, 2), 16));
+function roseColor(x, y, size, edge) {
+  const dx = (x - 400) / 210, dy = (y - 300) / 220, r = Math.hypot(dx, dy);
+  let p = r > .82 ? ["#8f0b2b","#ae1238","#c41d48","#d52b53"] : r > .48 ? ["#b9143d","#d21e49","#e33b60","#f04e73"] : ["#c51b49","#e83c68","#f16b8b","#ff91a9"];
+  if (edge) p = p.concat(["#f5a0b3","#ef6488"]);
+  if (size >= 14) p = p.concat(["#ff9ab1","#ffd0dc"]);
+  return hex(pick(p));
+}
+function greenColor(x, y, size) {
+  let p = ["#3e8034","#559c3c","#72b84b","#91cf62","#b1e184"];
+  if (size >= 9) p = p.concat(["#a7d486","#c0e19a"]);
+  return hex(pick(p));
+}
+
+// ---- phrase picking ----
+const cycles = {};
+function phrase(kind, size) {
+  const pool = size >= 14 ? ACCENTS : (kind !== "head" ? SHORT : HEADW), key = kind + (size >= 14);
+  if (!cycles[key] || !cycles[key].length) cycles[key] = shuffle(pool.slice());
+  return cycles[key].pop();
+}
+function sizeFor(kind) {
+  if (kind === "head") { let t = rng() * HW.reduce((a, b) => a + b), i = 0; while ((t -= HW[i]) > 0 && i < HW.length - 1) i++; return HSIZES[i]; }
+  return pick(kind === "stem" ? [6,7,8] : [7,8,9,10]);
+}
+
+// ---- fill a region with text ----
+function region(polys, y0, y1, rowH, kind) {
+  const out = [], half = rowH / 2, gap = kind === "head" ? GAP : 1;
+  for (let y = y0 + half; y < y1 - half; y += rowH) {
+    const row = inter(shapeSpans(polys, y - half + 1), shapeSpans(polys, y + half - 1), kind === "head" ? 19 : 16);
+    for (let [lo, hi] of row) {
+      const mg = kind === "head" ? 3 : 1; lo += mg; hi -= mg;
+      const av = hi - lo; if (av < 18) continue;
+      const line = []; let cur = lo + rnd(0, Math.min(3, Math.max(1, av * .02)));
+      while (cur < hi - 15) {
+        const rem = hi - cur, tw = Math.min(74, Math.max(19, rem * .22)), c = [];
+        for (let i = 0; i < (kind === "head" ? 45 : 55); i++) {
+          const size = sizeFor(kind), text = phrase(kind, size), w = measure(text, size);
+          if (w <= rem && w >= Math.min(18, rem * .2)) c.push({sc: Math.abs(w - tw) + rnd(0, 13), text, size, w});
+        }
+        if (!c.length) break;
+        c.sort((a, b) => a.sc - b.sc);
+        const p = c[Math.floor(rng() * Math.min(4, c.length))];
+        line.push({x: cur + p.w / 2, y, text: p.text, size: p.size, kind});
+        cur += p.w + gap; line[line.length - 1].w = p.w;
+      }
+      if (!line.length) continue;
+      const used = line.reduce((a, i) => a + i.w, 0) + (line.length - 1) * gap;
+      const extra = line.length > 1 ? Math.max(0, av - used) / (line.length - 1) : 0;
+      line.forEach((it, i) => {
+        it.x += extra * i; it.edge = i === 0 || i === line.length - 1;
+        it.col = kind === "head" ? roseColor(it.x, it.y, it.size, it.edge) : greenColor(it.x, it.y, it.size);
+        it.font = `bold ${it.size * 1.333}px ${FONT}`;
+        it.dx = rnd(-6, 6); it.rad = Math.hypot(it.x - 400, it.y - 300) / 200;
+        out.push(it);
+      });
+    }
+  }
+  return out;
+}
+
+const hRow = Math.ceil(11 * 1.333 * 1.2) + 1, lRow = Math.ceil(9 * 1.333 * 1.2) + 1, sRow = Math.ceil(8 * 1.333 * 1.2) + 1;
+let placed = [].concat(region(HEAD, 88, 540, hRow, "head"), region([LLEAF], 543, 618, lRow, "leaf"), region([RLEAF], 575, 651, lRow, "leaf"), region([STEM], 492, 773, sRow, "stem"));
+const outer = placed.filter(p => p.edge).sort((a, b) => (Math.atan2(a.y - 300, a.x - 400) + 2 * Math.PI) % (2 * Math.PI) - (Math.atan2(b.y - 300, b.x - 400) + 2 * Math.PI) % (2 * Math.PI));
+const inner = shuffle(placed.filter(p => !p.edge));
+const ORDER = outer.concat(inner);
+ORDER.forEach((p, i) => { p.delay = i / ORDER.length * DURATION; });
+
+// ---- view / input ----
+let W, H, dpr, sc, ox, oy;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr;
+  sc = Math.min(W / 800, H / 860); ox = (W - 800 * sc) / 2; oy = (H - 800 * sc) / 2 - 10;
+}
+addEventListener("resize", resize); resize();
+const ptr = {x: -999, y: -999};
+const toLogical = e => { ptr.x = (e.clientX - ox) / sc; ptr.y = (e.clientY - oy) / sc; };
+
+// ---- particles: falling petals + heart bursts ----
+const parts = [];
+const PET = ["#c41d48","#e33b60","#f04e73","#ff91a9","#d21e49"];
+function petal(x, y, vx, vy) { parts.push({t: "p", x, y, vx, vy, rot: rnd(0, 6.28), vr: rnd(-1.5, 1.5), s: rnd(4, 8), c: pick(PET), life: 1, ph: rnd(0, 6.28)}); }
+function burst(x, y) {
+  for (let i = 0; i < 26; i++) { const a = rnd(0, 6.28), v = rnd(60, 220); parts.push({t: "h", x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 80, s: rnd(10, 24), c: pick(PET), life: 1, txt: pick(["♥","♥","❤","愛","LOVE"])}); }
+}
+addEventListener("pointermove", e => { toLogical(e); if (started && Math.random() < .25) parts.push({t: "h", x: ptr.x, y: ptr.y, vx: rnd(-20, 20), vy: rnd(-50, -20), s: rnd(8, 13), c: pick(PET), life: .8, txt: "♥"}); });
+addEventListener("pointerdown", e => { toLogical(e); burst(ptr.x, ptr.y); });
+addEventListener("pointerleave", () => { ptr.x = ptr.y = -999; });
+
+// ---- stars ----
+const stars = Array.from({length: 140}, () => ({x: Math.random(), y: Math.random(), r: Math.random() * 1.3 + .3, ph: Math.random() * 6.28, sp: Math.random() * 1.5 + .5}));
+
+// ---- caption ----
+const q = new URLSearchParams(location.search), to = q.get("to"), from = q.get("from"), cap = document.getElementById("cap");
+cap.textContent = to ? "For " + to : "I love you, in every language";
+if (from) { const sm = document.createElement("small"); sm.textContent = "with love, " + from; cap.appendChild(sm); }
+
+// ---- main loop ----
+const t0 = performance.now(); let started = false, lastPetal = 0, lastT = t0;
+const mixc = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+const beat = t => { const m = (t % 1.5) / 1.5; return 1 + .016 * (Math.exp(-(((m - .08) * 14) ** 2)) + .7 * Math.exp(-(((m - .28) * 14) ** 2))); };
+const R = 70;
+
+function frame(now) {
+  const t = (now - t0) / 1000, dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
+  const el = now - t0; started = el > 1500;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = "#060208"; ctx.fillRect(0, 0, W, H);
+  // stars
+  ctx.fillStyle = "#ffd9e4";
+  for (const st of stars) { ctx.globalAlpha = .25 + .45 * Math.sin(t * st.sp + st.ph) ** 2; ctx.beginPath(); ctx.arc(st.x * W, st.y * H, st.r, 0, 6.283); ctx.fill(); }
+  // glow behind the rose
+  const bp = Math.min(1, el / DURATION), g = ctx.createRadialGradient(ox + 400 * sc, oy + 300 * sc, 10, ox + 400 * sc, oy + 300 * sc, 330 * sc * (1 + .02 * Math.sin(t * 2)));
+  g.addColorStop(0, `rgba(232,52,106,${.22 * bp})`); g.addColorStop(1, "rgba(232,52,106,0)");
+  ctx.globalAlpha = 1; ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+
+  ctx.setTransform(dpr * sc, 0, 0, dpr * sc, ox * dpr, oy * dpr);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const pulse = beat(t), R2 = R * R;
+  for (const it of ORDER) {
+    const age = el - it.delay; if (age < 0) continue;
+    const u = Math.min(1, age / ANIM), e = 1 - (1 - u) ** 3;
+    let x = it.x + it.dx * (1 - e), y = it.y - LIFT * (1 - e);
+    if (it.kind !== "stem") {
+      const k = it.kind === "leaf" ? 1.7 : .9;
+      x += Math.sin(t * 1.1 + it.y * .03 + it.x * .01) * k * e; y += Math.cos(t * .9 + it.x * .03) * .5 * e;
+    }
+    if (it.kind === "head") { x = 400 + (x - 400) * pulse; y = 300 + (y - 300) * pulse; }
+    let glow = 0; const dx = x - ptr.x, dy = y - ptr.y, d2 = dx * dx + dy * dy;
+    if (d2 < R2) { const d = Math.sqrt(d2) || 1, f = (1 - d / R) ** 2; x += dx / d * f * 24; y += dy / d * f * 24; glow = f; }
+    let flash = .55 * Math.sin(Math.PI * Math.max(0, Math.min(1, (u - .58) / .42)));
+    if (u >= 1) flash += .5 * Math.max(0, Math.sin(t * 1.5 - it.rad * 5)) ** 14 + glow * .85;
+    ctx.globalAlpha = e ** 1.35;
+    ctx.fillStyle = flash > .02 ? `rgb(${mixc(it.col, [255, 212, 224], Math.min(1, flash)).map(Math.round)})` : `rgb(${it.col})`;
+    ctx.font = it.font; ctx.fillText(it.text, x, y);
+  }
+
+  // petals
+  if (el > DURATION * .55 && now - lastPetal > 320) { lastPetal = now; petal(rnd(220, 580), 80, rnd(-10, 10), rnd(18, 40)); }
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    if (p.t === "p") { p.ph += dt * 2; p.x += (p.vx + Math.sin(p.ph) * 26) * dt; p.y += p.vy * dt; p.rot += p.vr * dt; if (p.y > 800) { parts.splice(i, 1); continue; }
+      ctx.globalAlpha = .85; ctx.fillStyle = p.c; ctx.beginPath(); ctx.ellipse(p.x, p.y, p.s, p.s * .55, p.rot, 0, 6.283); ctx.fill(); }
+    else { p.vy += 260 * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt * .7; if (p.life <= 0) { parts.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.c; ctx.font = `bold ${p.s}px ${FONT}`; ctx.fillText(p.txt, p.x, p.y); }
+  }
+  if (el > DURATION + 600) cap.classList.add("on");
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
